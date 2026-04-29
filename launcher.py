@@ -108,10 +108,21 @@ def _download_and_extract() -> bool:
         return False
     extracted_root = children[0]
 
+    # Preserve user data (SQLite DB) across updates.
+    preserved_db = None
+    db_path = SOURCE_DIR / "gantt.db"
+    if db_path.exists():
+        preserved_db = db_path.read_bytes()
+
     if SOURCE_DIR.exists():
         _rmtree(SOURCE_DIR)
     extracted_root.rename(SOURCE_DIR)
     _rmtree(tmp)
+
+    if preserved_db is not None:
+        (SOURCE_DIR / "gantt.db").write_bytes(preserved_db)
+        log("Preserved existing gantt.db across update.")
+
     log(f"Source updated at {SOURCE_DIR}")
     return True
 
