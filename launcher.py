@@ -109,17 +109,90 @@ def _download_and_extract() -> bool:
         return False
     extracted_root = children[0]
 
-    if SOURCE_DIR.exists():
-        _rmtree(SOURCE_DIR)
-    extracted_root.rename(SOURCE_DIR)
+    if not _replace_source(extracted_root):
+        return False
     _rmtree(tmp)
     log(f"Source updated at {SOURCE_DIR}")
     return True
 
 
+def _on_rm_error(func, path, exc_info):
+    """rmtree onerror handler: clear read-only flag and retry once."""
+    import stat
+    try:
+        os.chmod(path, stat.S_IWRITE)
+        func(path)
+    except OSError:
+        pass
+
+
 def _rmtree(path: Path) -> None:
     import shutil
-    shutil.rmtree(path, ignore_errors=True)
+    if not path.exists():
+        return
+    # Retry a few times: Windows can briefly hold file locks (AV scanners, etc.).
+    for _ in range(5):
+        shutil.rmtree(path, onerror=_on_rm_error)
+        if not path.exists():
+            return
+        time.sleep(0.2)
+
+
+def _replace_source(new_root: Path) -> bool:
+    """Atomically (best-effort) move new_root to SOURCE_DIR.
+
+    On Windows, rename() fails if the destination exists. We first delete
+    SOURCE_DIR; if that fails, we fall back to swapping via a side-by-side
+    rename of the old folder.
+    """
+    import shutil
+
+    # Best path: remove old, then rename new into place.
+    if SOURCE_DIR.exists():
+        _rmtree(SOURCE_DIR)
+
+    if not SOURCE_DIR.exists():
+        try:
+            new_root.rename(SOURCE_DIR)
+            return True
+        except OSError as e:
+            log(f"rename failed ({e}); falling back to copy.")
+
+    # Fallback: rename old -> .old_<ts>, then rename new -> SOURCE_DIR.
+    if SOURCE_DIR.exists():
+        backup = APP_DIR / f"source.old_{int(time.time())}"
+        try:
+            SOURCE_DIR.rename(backup)
+        except OSError as e:
+            log(f"Could not rename old source dir: {e}")
+            # Last-resort: copy file tree and ignore residual files.
+            try:
+                shutil.copytree(new_root, SOURCE_DIR, dirs_exist_ok=True)
+                return True
+            except Exception as e2:
+                log(f"Copy fallback also failed: {e2}")
+                return False
+        try:
+            new_root.rename(SOURCE_DIR)
+        except OSError as e:
+            log(f"Final rename failed: {e}")
+            # Try to roll back.
+            try:
+                backup.rename(SOURCE_DIR)
+            except OSError:
+                pass
+            return False
+        # Best effort cleanup of the backup.
+        _rmtree(backup)
+        return True
+
+    # SOURCE_DIR doesn't exist; just rename.
+    try:
+        new_root.rename(SOURCE_DIR)
+        return True
+    except OSError as e:
+        log(f"Could not place source dir: {e}")
+        return False
 
 
 def ensure_source() -> bool:
