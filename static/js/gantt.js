@@ -52,7 +52,9 @@ const Gantt = (() => {
     if (labelMode === 'none') return '';
     if (labelMode === 'duration') {
       const unit = schedule.mode === 'week' ? 'wk' : 'd';
-      return `${d.duration}${unit}`;
+      // Show ".5" only when needed; otherwise integer.
+      const v = Number.isInteger(d.duration) ? d.duration : d.duration.toFixed(1);
+      return `${v}${unit}`;
     }
     return d.name;
   }
@@ -260,7 +262,8 @@ const Gantt = (() => {
         })
         .on('drag', function (event, d) {
           d._dragX = (d._dragX ?? d.start_offset * cellW) + event.dx;
-          const snap = Math.max(0, Math.round(d._dragX / cellW));
+          const step = schedule.mode === 'week' ? 0.5 : 1;
+          const snap = Math.max(0, Math.round(d._dragX / cellW / step) * step);
           d.start_offset = snap;
           updateGroupPositions(d3.select(this.parentNode), d, barH, schedule);
         })
@@ -276,7 +279,8 @@ const Gantt = (() => {
       d3.drag()
         .on('drag', function (event, d) {
           d._dragW = (d._dragW ?? d.duration * cellW) + event.dx;
-          const snap = Math.max(1, Math.round(d._dragW / cellW));
+          const step = schedule.mode === 'week' ? 0.5 : 1;
+          const snap = Math.max(step, Math.round(d._dragW / cellW / step) * step);
           d.duration = snap;
           updateGroupPositions(d3.select(this.parentNode), d, barH, schedule);
         })

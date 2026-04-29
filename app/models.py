@@ -28,8 +28,8 @@ class Task(Base):
         Integer, ForeignKey("schedules.id", ondelete="CASCADE"), nullable=False
     )
     name = Column(String, nullable=False)
-    start_offset = Column(Integer, nullable=False, default=0)  # units from schedule start
-    duration = Column(Integer, nullable=False, default=1)      # units (>=1)
+    start_offset = Column(Float, nullable=False, default=0.0)  # units from schedule start (0.5 step in week mode)
+    duration = Column(Float, nullable=False, default=1.0)     # units (>= 0.5)
     progress = Column(Float, nullable=False, default=0.0)      # 0..1
     color = Column(String, nullable=True)                      # optional override
 

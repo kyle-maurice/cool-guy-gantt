@@ -189,13 +189,19 @@
   function openTaskModal(task) {
     state.editingTask = task;
     const isEdit = !!task;
+    const isWeek = state.currentSchedule.mode === 'week';
+    const step = isWeek ? 0.5 : 1;
     $('#task-modal-title').textContent = isEdit ? 'Edit Task' : 'New Task';
     $('#task-name').value = task ? task.name : '';
     $('#task-start').value = task ? task.start_offset : 0;
+    $('#task-start').step = step;
+    $('#task-start').min = 0;
     $('#task-duration').value = task ? task.duration : 1;
+    $('#task-duration').step = step;
+    $('#task-duration').min = step;
     $('#task-progress').value = task ? Math.round((task.progress || 0) * 100) : 0;
     $('#task-delete').style.display = isEdit ? '' : 'none';
-    const unit = state.currentSchedule.mode === 'week' ? 'week' : 'day';
+    const unit = isWeek ? 'week' : 'day';
     const unitPlural = unit + 's';
     $$('.unit-label').forEach((el, i) => {
       el.textContent = i === 0 ? unit : unitPlural;
@@ -259,10 +265,13 @@
   });
 
   $('#task-save').addEventListener('click', async () => {
+    const isWeek = state.currentSchedule.mode === 'week';
+    const step = isWeek ? 0.5 : 1;
+    const snap = (v) => Math.round(v / step) * step;
     const payload = {
       name: $('#task-name').value.trim(),
-      start_offset: parseInt($('#task-start').value, 10) || 0,
-      duration: Math.max(1, parseInt($('#task-duration').value, 10) || 1),
+      start_offset: Math.max(0, snap(parseFloat($('#task-start').value) || 0)),
+      duration: Math.max(step, snap(parseFloat($('#task-duration').value) || step)),
       progress: Math.min(1, Math.max(0, (parseFloat($('#task-progress').value) || 0) / 100)),
     };
     if (!payload.name) { toast('Name is required', true); return; }
