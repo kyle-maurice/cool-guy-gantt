@@ -39,6 +39,7 @@ ZIP_URL = (
 
 APP_DIR = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "CoolGuyGantt"
 SOURCE_DIR = APP_DIR / "source"           # current extracted source root
+DATA_DIR = APP_DIR / "data"               # persistent user data (DB lives here)
 VERSION_FILE = APP_DIR / "version.json"   # {"sha": "<commit sha>"}
 HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
@@ -108,21 +109,10 @@ def _download_and_extract() -> bool:
         return False
     extracted_root = children[0]
 
-    # Preserve user data (SQLite DB) across updates.
-    preserved_db = None
-    db_path = SOURCE_DIR / "gantt.db"
-    if db_path.exists():
-        preserved_db = db_path.read_bytes()
-
     if SOURCE_DIR.exists():
         _rmtree(SOURCE_DIR)
     extracted_root.rename(SOURCE_DIR)
     _rmtree(tmp)
-
-    if preserved_db is not None:
-        (SOURCE_DIR / "gantt.db").write_bytes(preserved_db)
-        log("Preserved existing gantt.db across update.")
-
     log(f"Source updated at {SOURCE_DIR}")
     return True
 
@@ -191,6 +181,24 @@ def run_server(source_dir: Path) -> int:
     sys.path.insert(0, str(source_dir))
     # Run uvicorn from the source dir so SQLite / static paths resolve.
     os.chdir(source_dir)
+
+    # Tell the app where to keep its persistent data (DB lives outside source/).
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    os.environ["COOLGUYGANTT_DATA_DIR"] = str(DATA_DIR)
+
+    # One-time migration: if a legacy gantt.db exists inside source/, move it.
+    legacy_db = source_dir / "gantt.db"
+    target_db = DATA_DIR / "gantt.db"
+    if legacy_db.exists() and not target_db.exists():
+        try:
+            target_db.write_bytes(legacy_db.read_bytes())
+            legacy_db.unlink(missing_ok=True)
+            log(f"Migrated existing gantt.db to {target_db}")
+        except OSError as e:
+            log(f"DB migration warning: {e}")
+
+    log(f"Database: {target_db}")
+
     try:
         import uvicorn  # bundled by PyInstaller
         from app.main import app  # type: ignore
