@@ -134,6 +134,15 @@ const Gantt = (() => {
     const fmtDay = d3.timeFormat('%b %d');
     const fmtWeek = (d) => `W${d3.timeFormat('%V')(d)}`;
 
+    // Return the Monday on/before the given date.
+    const mondayOf = (d) => {
+      const x = new Date(d.getTime());
+      // getDay(): Sun=0, Mon=1, ..., Sat=6  -> shift so Monday is the anchor.
+      const dow = (x.getDay() + 6) % 7; // Mon=0 ... Sun=6
+      x.setDate(x.getDate() - dow);
+      return x;
+    };
+
     headerG.selectAll('text.tick-label')
       .data(ticks)
       .enter()
@@ -145,7 +154,7 @@ const Gantt = (() => {
       .attr('fill', 'var(--lam-gray)')
       .text((u) => {
         const d = unitsToDate(schedule, u);
-        return schedule.mode === 'week' ? fmtWeek(d) : fmtDay(d);
+        return schedule.mode === 'week' ? fmtWeek(mondayOf(d)) : fmtDay(d);
       });
 
     headerG.selectAll('text.tick-sub')
@@ -160,7 +169,7 @@ const Gantt = (() => {
       .text((u) => {
         const d = unitsToDate(schedule, u);
         return schedule.mode === 'week'
-          ? d3.timeFormat('%b %d')(d)
+          ? d3.timeFormat('%b %d')(mondayOf(d))
           : d3.timeFormat('%a')(d);
       });
 
