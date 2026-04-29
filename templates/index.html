@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Cool Guy Gantt Chart Maker</title>
+  <link rel="stylesheet" href="/static/css/theme.css" />
+  <script src="https://d3js.org/d3.v7.min.js" defer></script>
+  <script src="/static/js/api.js" defer></script>
+  <script src="/static/js/gantt.js" defer></script>
+  <script src="/static/js/app.js" defer></script>
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <div class="accent-bar"></div>
+      <h1>Cool Guy Gantt Chart Maker</h1>
+    </header>
+
+    <aside class="sidebar">
+      <h2>Schedules</h2>
+      <ul id="schedule-list" class="schedule-list"></ul>
+      <button id="new-schedule-btn" class="btn secondary" style="width:100%">+ New Schedule</button>
+    </aside>
+
+    <section class="main">
+      <div class="toolbar">
+        <span id="schedule-title" class="title">No schedule selected</span>
+        <label style="display:inline-flex; align-items:center; gap:6px; font-size:13px; color:var(--lam-gray);">
+          Label:
+          <select id="label-mode" style="padding:4px 8px; border:1px solid var(--lam-light-gray); border-radius:var(--radius); font-size:13px;">
+            <option value="name">Task name</option>
+            <option value="duration">Duration</option>
+            <option value="none">None</option>
+          </select>
+        </label>
+        <label style="display:inline-flex; align-items:center; gap:6px; font-size:13px; color:var(--lam-gray);">
+          Buffer:
+          <input id="buffer-units" type="number" min="0" max="200" value="4" style="width:64px; padding:4px 8px; border:1px solid var(--lam-light-gray); border-radius:var(--radius); font-size:13px;" />
+        </label>
+        <div class="mode-toggle" id="mode-toggle">
+          <button data-mode="day">Day</button>
+          <button data-mode="week">Week</button>
+        </div>
+        <button id="add-task-btn" class="btn" disabled>+ Add Task</button>
+      </div>
+      <div class="gantt-wrap" id="gantt-wrap">
+        <div class="empty-state" id="empty-state">
+          <div>Create or select a schedule to get started.</div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- Schedule modal -->
+  <div class="modal-backdrop hidden" id="schedule-modal">
+    <div class="modal">
+      <h3>New Schedule</h3>
+      <div class="field">
+        <label for="sched-name">Name</label>
+        <input id="sched-name" type="text" placeholder="e.g. Q3 Tool Install" />
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label for="sched-mode">Mode</label>
+          <select id="sched-mode">
+            <option value="day">Day</option>
+            <option value="week">Week</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="sched-start">Start Date</label>
+          <input id="sched-start" type="date" />
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn secondary" data-close="schedule-modal">Cancel</button>
+        <button class="btn" id="sched-save">Create</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Task modal -->
+  <div class="modal-backdrop hidden" id="task-modal">
+    <div class="modal">
+      <h3 id="task-modal-title">New Task</h3>
+      <div class="field">
+        <label for="task-name">Name</label>
+        <input id="task-name" type="text" />
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label for="task-start">Start (<span class="unit-label">day</span>)</label>
+          <input id="task-start" type="number" min="0" value="0" />
+        </div>
+        <div class="field">
+          <label for="task-duration">Duration (<span class="unit-label">days</span>)</label>
+          <input id="task-duration" type="number" min="1" value="1" />
+        </div>
+      </div>
+      <div class="field">
+        <label for="task-progress">Progress (%)</label>
+        <input id="task-progress" type="number" min="0" max="100" value="0" />
+      </div>
+      <div class="field">
+        <label>Prerequisites</label>
+        <div style="display:flex; gap:8px;">
+          <select id="task-prereq-select" style="flex:1; padding:8px 10px; border:1px solid var(--lam-light-gray); border-radius:var(--radius);"></select>
+          <button class="btn secondary" id="task-prereq-add" type="button">Add</button>
+        </div>
+        <ul id="task-deps-list" class="deps-list"></ul>
+      </div>
+      <div class="modal-actions">
+        <button class="btn danger" id="task-delete" style="margin-right:auto; display:none">Delete</button>
+        <button class="btn secondary" data-close="task-modal">Cancel</button>
+        <button class="btn" id="task-save">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+</body>
+</html>
