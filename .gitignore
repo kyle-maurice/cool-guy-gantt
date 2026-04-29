@@ -8,3 +8,6 @@ venv/
 .idea/
 *.log
 test_out.txt
+build/
+dist/
+*.spec
