@@ -85,6 +85,7 @@ def run_server(source_dir: Path) -> int:
     # Tell the app where to keep its persistent data (DB lives outside source/).
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     os.environ["COOLGUYGANTT_DATA_DIR"] = str(DATA_DIR)
+    os.environ["COOLGUYGANTT_AUTO_EXIT_ON_IDLE"] = "1"
 
     # One-time migration: if a legacy gantt.db exists inside source/, move it.
     legacy_db = source_dir / "gantt.db"

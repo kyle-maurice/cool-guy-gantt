@@ -95,8 +95,13 @@ html, body {
   background: var(--lam-blue);
   color: var(--lam-white);
 }
+.schedule-list .actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
 .schedule-list .del {
-  opacity: 0;
+  opacity: 0.8;
   background: none;
   border: 0;
   color: inherit;
@@ -104,7 +109,7 @@ html, body {
   font-size: 16px;
   line-height: 1;
 }
-.schedule-list li:hover .del { opacity: 0.7; }
+.schedule-list li:hover .del { opacity: 0.9; }
 .schedule-list li .del:hover { opacity: 1; }
 
 .main {

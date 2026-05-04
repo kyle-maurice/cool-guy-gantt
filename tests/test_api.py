@@ -46,6 +46,17 @@ def test_create_and_list_schedule(client):
     assert any(s["id"] == sid for s in r.json())
 
 
+def test_rename_schedule(client):
+    s = client.post("/api/schedules", json={"name": "Original", "mode": "day", "start_date": "2026-01-01"}).json()
+    r = client.patch(f"/api/schedules/{s['id']}", json={"name": "Renamed"})
+    assert r.status_code == 200
+    assert r.json()["name"] == "Renamed"
+
+    detail = client.get(f"/api/schedules/{s['id']}")
+    assert detail.status_code == 200
+    assert detail.json()["name"] == "Renamed"
+
+
 def test_task_crud(client):
     s = client.post("/api/schedules", json={"name": "S", "mode": "day", "start_date": "2026-01-01"}).json()
     r = client.post(f"/api/schedules/{s['id']}/tasks", json={"name": "T1", "start_offset": 0, "duration": 3})

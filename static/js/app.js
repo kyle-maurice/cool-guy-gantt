@@ -1,5 +1,7 @@
 // App-level UI wiring: schedule list, modals, mode toggle, task editing.
 (function () {
+  const TAB_SESSION_KEY = 'cg-gantt-tab-session-id';
+
   const state = {
     schedules: [],
     currentScheduleId: null,
@@ -9,6 +11,19 @@
     labelMode: 'name', // 'name' | 'duration' | 'none'
     buffer: 4,
   };
+
+  let scheduleClickTimer = null;
+
+  const tabSessionId = (() => {
+    if (window.sessionStorage && sessionStorage.getItem(TAB_SESSION_KEY)) {
+      return sessionStorage.getItem(TAB_SESSION_KEY);
+    }
+    const id = (window.crypto && crypto.randomUUID)
+      ? crypto.randomUUID()
+      : `tab-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    if (window.sessionStorage) sessionStorage.setItem(TAB_SESSION_KEY, id);
+    return id;
+  })();
 
   // ---------- Helpers ----------
   function $(sel) { return document.querySelector(sel); }
@@ -25,6 +40,22 @@
 
   function openModal(id) { $('#' + id).classList.remove('hidden'); }
   function closeModal(id) { $('#' + id).classList.add('hidden'); }
+
+  function sendSessionHeartbeat() {
+    fetch(`/api/session/heartbeat?sid=${encodeURIComponent(tabSessionId)}`, {
+      method: 'POST',
+      keepalive: true,
+    }).catch(() => {});
+  }
+
+  function sendSessionClose() {
+    const url = `/api/session/close?sid=${encodeURIComponent(tabSessionId)}`;
+    if (navigator.sendBeacon) {
+      navigator.sendBeacon(url);
+      return;
+    }
+    fetch(url, { method: 'POST', keepalive: true }).catch(() => {});
+  }
 
   // Bind generic close buttons
   document.addEventListener('click', (e) => {
@@ -51,16 +82,38 @@
     state.schedules.forEach((s) => {
       const li = document.createElement('li');
       li.dataset.id = s.id;
+      li.title = 'Double-click to rename schedule';
       if (s.id === state.currentScheduleId) li.classList.add('active');
       li.innerHTML = `<span>${escapeHtml(s.name)}</span>
-                      <button class="del" title="Delete">×</button>`;
+                      <div class="actions">
+                        <button class="del" title="Delete">×</button>
+                      </div>`;
       li.addEventListener('click', (e) => {
         if (e.target.classList.contains('del')) {
           e.stopPropagation();
+          if (scheduleClickTimer) {
+            clearTimeout(scheduleClickTimer);
+            scheduleClickTimer = null;
+          }
           if (confirm(`Delete schedule "${s.name}"?`)) deleteSchedule(s.id);
         } else {
-          selectSchedule(s.id);
+          if (scheduleClickTimer) clearTimeout(scheduleClickTimer);
+          scheduleClickTimer = setTimeout(() => {
+            if (state.currentScheduleId !== s.id) {
+              selectSchedule(s.id);
+            }
+            scheduleClickTimer = null;
+          }, 320);
         }
+      });
+      li.addEventListener('dblclick', (e) => {
+        if (e.target.classList.contains('del')) return;
+        e.preventDefault();
+        if (scheduleClickTimer) {
+          clearTimeout(scheduleClickTimer);
+          scheduleClickTimer = null;
+        }
+        renameSchedule(s);
       });
       ul.appendChild(li);
     });
@@ -84,11 +137,32 @@
     await loadSchedules();
   }
 
+  async function renameSchedule(schedule) {
+    const next = prompt('Enter a new schedule name:', schedule.name);
+    if (next === null) return;
+    const name = next.trim();
+    if (!name) {
+      toast('Name is required', true);
+      return;
+    }
+    try {
+      await API.updateSchedule(schedule.id, { name });
+      await loadSchedules();
+      if (state.currentScheduleId === schedule.id) {
+        await selectSchedule(schedule.id);
+      }
+      toast('Schedule renamed');
+    } catch (e) {
+      toast(e.message, true);
+    }
+  }
+
   function renderToolbar() {
     const s = state.currentSchedule;
     $('#schedule-title').textContent = s
       ? `${s.name}  ·  starts ${s.start_date}`
       : 'No schedule selected';
+    $('#rename-schedule-btn').disabled = !s;
     $('#add-task-btn').disabled = !s;
     $$('#mode-toggle button').forEach((b) => {
       b.classList.toggle('active', s && b.dataset.mode === s.mode);
@@ -184,6 +258,11 @@
   });
 
   // ---------- Task modal ----------
+  $('#rename-schedule-btn').addEventListener('click', () => {
+    if (!state.currentSchedule) return;
+    renameSchedule(state.currentSchedule);
+  });
+
   $('#add-task-btn').addEventListener('click', () => openTaskModal(null));
 
   function openTaskModal(task) {
@@ -305,6 +384,11 @@
 
   // ---------- Boot ----------
   window.addEventListener('DOMContentLoaded', () => {
+    sendSessionHeartbeat();
+    setInterval(sendSessionHeartbeat, 10000);
     loadSchedules().catch((e) => toast(e.message, true));
   });
+
+  window.addEventListener('pagehide', sendSessionClose);
+  window.addEventListener('beforeunload', sendSessionClose);
 })();
