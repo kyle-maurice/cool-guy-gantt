@@ -1,230 +1,57 @@
-"""Self-updating launcher for Cool Guy Gantt Chart Maker.
+"""Standalone launcher for Cool Guy Gantt Chart Maker.
 
 On launch:
-  1. Checks GitHub for the latest commit on `main`.
-  2. If newer than what's cached locally, downloads the source zip
-     and extracts it to %LOCALAPPDATA%\\CoolGuyGantt\\app.
-  3. Adds that folder to sys.path.
-  4. Starts uvicorn in-process and opens the default browser.
-  5. Stays running until Ctrl+C or the console window is closed.
-
-Falls back to the last good cached copy if the network is unreachable.
+  1. Resolves the local or bundled application source.
+  2. Configures a persistent data directory under %LOCALAPPDATA%.
+  3. Starts uvicorn in-process and opens the default browser.
+  4. Stays running until Ctrl+C or the console window is closed.
 """
 from __future__ import annotations
 
-import io
-import json
 import os
 import socket
 import sys
 import threading
 import time
 import traceback
-import urllib.error
-import urllib.request
 import webbrowser
-import zipfile
 from pathlib import Path
 
-REPO_OWNER = "kyle-maurice"
-REPO_NAME = "cool-guy-gantt"
-BRANCH = "main"
-
-API_LATEST_COMMIT = (
-    f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/commits/{BRANCH}"
-)
-ZIP_URL = (
-    f"https://github.com/{REPO_OWNER}/{REPO_NAME}/archive/refs/heads/{BRANCH}.zip"
-)
-
 APP_DIR = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "CoolGuyGantt"
-SOURCE_DIR = APP_DIR / "source"           # current extracted source root
 DATA_DIR = APP_DIR / "data"               # persistent user data (DB lives here)
-VERSION_FILE = APP_DIR / "version.json"   # {"sha": "<commit sha>"}
 HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
-HTTP_TIMEOUT = 8  # seconds
+LAUNCHER_LOG = APP_DIR / "launcher.log"
 
 
 # ------------------------------------------------------------------ logging
 def log(msg: str) -> None:
-    print(f"[launcher] {msg}", flush=True)
-
-
-# ------------------------------------------------------------------ updater
-def _read_local_sha() -> str | None:
+    line = f"[launcher] {msg}"
+    if sys.stdout is not None:
+        print(line, flush=True)
+        return
     try:
-        return json.loads(VERSION_FILE.read_text("utf-8")).get("sha")
-    except Exception:
-        return None
-
-
-def _write_local_sha(sha: str) -> None:
-    VERSION_FILE.write_text(json.dumps({"sha": sha}), encoding="utf-8")
-
-
-def _fetch_remote_sha() -> str | None:
-    try:
-        req = urllib.request.Request(
-            API_LATEST_COMMIT,
-            headers={"User-Agent": "CoolGuyGantt-Launcher"},
-        )
-        with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT) as r:
-            data = json.loads(r.read().decode("utf-8"))
-            return data.get("sha")
-    except (urllib.error.URLError, TimeoutError, socket.timeout, OSError) as e:
-        log(f"Could not reach GitHub: {e}")
-        return None
-
-
-def _download_and_extract() -> bool:
-    log(f"Downloading latest source from {ZIP_URL} ...")
-    try:
-        req = urllib.request.Request(
-            ZIP_URL, headers={"User-Agent": "CoolGuyGantt-Launcher"}
-        )
-        with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT * 4) as r:
-            buf = io.BytesIO(r.read())
-    except Exception as e:
-        log(f"Download failed: {e}")
-        return False
-
-    # Extract into a fresh temp dir, then atomically swap.
-    tmp = APP_DIR / "_extract_tmp"
-    if tmp.exists():
-        _rmtree(tmp)
-    tmp.mkdir(parents=True, exist_ok=True)
-
-    try:
-        with zipfile.ZipFile(buf) as zf:
-            zf.extractall(tmp)
-    except Exception as e:
-        log(f"Extract failed: {e}")
-        return False
-
-    # GitHub zips contain a single top-level folder like "<repo>-<branch>".
-    children = [p for p in tmp.iterdir() if p.is_dir()]
-    if not children:
-        log("Unexpected zip layout (no top-level folder).")
-        return False
-    extracted_root = children[0]
-
-    if not _replace_source(extracted_root):
-        return False
-    _rmtree(tmp)
-    log(f"Source updated at {SOURCE_DIR}")
-    return True
-
-
-def _on_rm_error(func, path, exc_info):
-    """rmtree onerror handler: clear read-only flag and retry once."""
-    import stat
-    try:
-        os.chmod(path, stat.S_IWRITE)
-        func(path)
+        APP_DIR.mkdir(parents=True, exist_ok=True)
+        with LAUNCHER_LOG.open("a", encoding="utf-8") as f:
+            f.write(line + "\n")
     except OSError:
         pass
 
 
-def _rmtree(path: Path) -> None:
-    import shutil
-    if not path.exists():
+def pause_if_interactive() -> None:
+    if sys.stdin is None:
         return
-    # Retry a few times: Windows can briefly hold file locks (AV scanners, etc.).
-    for _ in range(5):
-        shutil.rmtree(path, onerror=_on_rm_error)
-        if not path.exists():
-            return
-        time.sleep(0.2)
-
-
-def _replace_source(new_root: Path) -> bool:
-    """Atomically (best-effort) move new_root to SOURCE_DIR.
-
-    On Windows, rename() fails if the destination exists. We first delete
-    SOURCE_DIR; if that fails, we fall back to swapping via a side-by-side
-    rename of the old folder.
-    """
-    import shutil
-
-    # Best path: remove old, then rename new into place.
-    if SOURCE_DIR.exists():
-        _rmtree(SOURCE_DIR)
-
-    if not SOURCE_DIR.exists():
-        try:
-            new_root.rename(SOURCE_DIR)
-            return True
-        except OSError as e:
-            log(f"rename failed ({e}); falling back to copy.")
-
-    # Fallback: rename old -> .old_<ts>, then rename new -> SOURCE_DIR.
-    if SOURCE_DIR.exists():
-        backup = APP_DIR / f"source.old_{int(time.time())}"
-        try:
-            SOURCE_DIR.rename(backup)
-        except OSError as e:
-            log(f"Could not rename old source dir: {e}")
-            # Last-resort: copy file tree and ignore residual files.
-            try:
-                shutil.copytree(new_root, SOURCE_DIR, dirs_exist_ok=True)
-                return True
-            except Exception as e2:
-                log(f"Copy fallback also failed: {e2}")
-                return False
-        try:
-            new_root.rename(SOURCE_DIR)
-        except OSError as e:
-            log(f"Final rename failed: {e}")
-            # Try to roll back.
-            try:
-                backup.rename(SOURCE_DIR)
-            except OSError:
-                pass
-            return False
-        # Best effort cleanup of the backup.
-        _rmtree(backup)
-        return True
-
-    # SOURCE_DIR doesn't exist; just rename.
     try:
-        new_root.rename(SOURCE_DIR)
-        return True
-    except OSError as e:
-        log(f"Could not place source dir: {e}")
-        return False
+        if sys.stdin.isatty():
+            input("Press Enter to exit...")
+    except Exception:
+        pass
 
 
-def ensure_source() -> bool:
-    """Make sure SOURCE_DIR holds an up-to-date copy. Returns True on success."""
-    APP_DIR.mkdir(parents=True, exist_ok=True)
-    remote = _fetch_remote_sha()
-    local = _read_local_sha()
-
-    have_source = SOURCE_DIR.exists() and (SOURCE_DIR / "app" / "main.py").exists()
-
-    if remote and remote != local:
-        log(f"Update available (remote={remote[:7]}, local={(local or 'none')[:7]}).")
-        if _download_and_extract():
-            _write_local_sha(remote)
-            return True
-        log("Falling back to cached copy.")
-        return have_source
-
-    if have_source:
-        log(f"Using cached source ({(local or 'unknown')[:7]}).")
-        return True
-
-    if not have_source and remote is None:
-        log("No cached source and GitHub unreachable.")
-        return False
-
-    # Edge: have remote but no local source (offline/no SHA mismatch path)
-    if not have_source:
-        if _download_and_extract() and remote:
-            _write_local_sha(remote)
-            return True
-    return have_source
+def resolve_source_dir() -> Path:
+    if getattr(sys, "frozen", False):
+        return Path(getattr(sys, "_MEIPASS"))
+    return Path(__file__).resolve().parent
 
 
 # ------------------------------------------------------------------ server
@@ -252,7 +79,7 @@ def _open_browser_when_ready(url: str, port: int) -> None:
 
 def run_server(source_dir: Path) -> int:
     sys.path.insert(0, str(source_dir))
-    # Run uvicorn from the source dir so SQLite / static paths resolve.
+    # Run from the source dir so legacy relative paths continue to work.
     os.chdir(source_dir)
 
     # Tell the app where to keep its persistent data (DB lives outside source/).
@@ -288,29 +115,37 @@ def run_server(source_dir: Path) -> int:
     ).start()
 
     try:
-        uvicorn.run(app, host=HOST, port=port, log_level="info")
+        # In windowed mode, stdin/stderr may be None; avoid uvicorn's default
+        # logging config because it expects terminal streams.
+        uvicorn.run(
+            app,
+            host=HOST,
+            port=port,
+            log_level="info",
+            log_config=None,
+            access_log=False,
+        )
     except KeyboardInterrupt:
         pass
     return 0
 
 
 def main() -> int:
-    print("Cool Guy Gantt Chart Maker")
-    print("=" * 32)
-    if not ensure_source():
-        log(
-            "ERROR: No source available. Connect to the internet and "
-            "re-launch to download the latest version."
-        )
-        input("Press Enter to exit...")
+    log("Cool Guy Gantt Chart Maker")
+    log("=" * 32)
+    source_dir = resolve_source_dir()
+    if not (source_dir / "app" / "main.py").exists():
+        log(f"ERROR: App source not found in {source_dir}")
+        pause_if_interactive()
         return 1
-    return run_server(SOURCE_DIR)
+    return run_server(source_dir)
 
 
 if __name__ == "__main__":
     try:
         sys.exit(main())
     except Exception:
-        traceback.print_exc()
-        input("Press Enter to exit...")
+        log("Unhandled launcher error:")
+        log(traceback.format_exc())
+        pause_if_interactive()
         sys.exit(1)

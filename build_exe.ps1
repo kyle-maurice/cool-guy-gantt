@@ -23,17 +23,16 @@ Write-Host "Building executable..." -ForegroundColor Cyan
 & $py -m PyInstaller `
     --name CoolGuyGantt `
     --onefile `
-    --console `
-    --collect-all fastapi `
-    --collect-all starlette `
-    --collect-all pydantic `
-    --collect-all pydantic_core `
-    --collect-all uvicorn `
-    --collect-all jinja2 `
-    --collect-all sqlalchemy `
-    --collect-all anyio `
-    --collect-all sniffio `
-    --collect-all click `
+    --windowed `
+    --add-data "app;app" `
+    --add-data "static;static" `
+    --add-data "templates;templates" `
+    --hidden-import uvicorn.loops.auto `
+    --hidden-import uvicorn.protocols.http.auto `
+    --hidden-import uvicorn.protocols.websockets.auto `
+    --hidden-import uvicorn.lifespan.on `
+    --hidden-import uvicorn.lifespan.off `
+    --hidden-import sqlalchemy.dialects.sqlite `
     launcher.py
 
 if ($LASTEXITCODE -eq 0) {
